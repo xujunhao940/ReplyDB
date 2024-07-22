@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import uuid
 import os
+from typing import Literal, Optional
 
 from whoosh.fields import Schema, TEXT, KEYWORD, ID, STORED
 from whoosh.analysis import StemmingAnalyzer
@@ -11,12 +12,16 @@ from whoosh.qparser import QueryParser
 
 
 class ReplyDB:
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, save_mode: Literal[
+        "dict", "list", "series", "split", "tight", "records", "index"
+    ] = "records") -> None:
         """
         :param path: path to json file
         """
         self.data = pd.DataFrame([])
         self.path = path
+        self.name = os.path.basename(path)
+        self.save_mode = save_mode
 
         self.load(path)
 
@@ -42,7 +47,7 @@ class ReplyDB:
                 self.data = pd.DataFrame(json.loads(content))
 
     def save(self) -> None:
-        json.dump(self.data.to_dict('records'), open(self.path, 'w', encoding='utf-8'))
+        json.dump(self.data.to_dict(self.save_mode), open(self.path, 'w', encoding='utf-8'))
 
     def insert(self, data: dict or list) -> None:
         """
@@ -74,7 +79,7 @@ class ReplyDB:
         if not os.path.exists("indexdir"):
             os.mkdir("indexdir")
 
-        ix = index.create_in("indexdir", schema, indexname=field)
+        ix = index.create_in("indexdir", schema, indexname=self.name + "_" + field)
         writer = ix.writer()
 
         for i in self.data.to_dict("records"):
@@ -82,15 +87,16 @@ class ReplyDB:
 
         writer.commit()
 
-    @staticmethod
-    def search(field: str, query: str) -> pd.Series:
+    def search(self, field: str, query: str, page: int = 1, pagelen: Optional[int] = 10) -> pd.Series:
         """
+        :param page:
+        :param pagelen:
         :param field: str
         :param query: str
         :return: pd.Series: _id
         """
-        ix = index.open_dir("indexdir", indexname=field)
+        ix = index.open_dir("indexdir", indexname=self.name + "_" + field)
         qp = QueryParser("body", schema=ix.schema)
         with ix.searcher() as searcher:
-            results = searcher.search(qp.parse(query))
+            results = searcher.search(qp.parse(query), page, pagelen)
             return pd.Series([i["id"] for i in results])
